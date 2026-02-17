@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>防災ハンター - 賢いナビ搭載完全版</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    
+    <script>
+        if (typeof L === "undefined") {
+            document.write("<p style=\"padding:20px;font-size:16px;\">地図ライブラリの読み込みに失敗しました。インターネット接続を確認するか、<a href=\"https://www.google.com/chrome/\">別のブラウザ</a>でお試しください。</p>");
+        }
+    </script>
+
+    <style>
+        /* --- 基本的なデザイン設定 --- */
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        
+        /* 地図を画面いっぱいに表示 */
+        #map { height: 100vh; width: 100%; z-index: 1; }
+
+        /* --- 画面上のボタン類（右側：保存） --- */
+        #download-btn {
+            position: absolute;
+            top: 10px; right: 10px; /* 右上に配置 */
+            z-index: 999; /* 地図より手前に表示 */
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid #2ecc71;
+            color: #2ecc71;
+        }
+        #download-btn:hover { background-color: #2ecc71; color: white; }
+
+        /* --- 画面上のボタン類（左側：ナビ・データ読込） --- */
+        
+        /* ナビゲーションボタン */
+        #nav-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 999;
+            background-color: white;
+            padding: 10px 14px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid #3498db;
+            color: #3498db;
+        }
+        #nav-btn:hover { background-color: #3498db; color: white; }
+        #nav-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* 国土地理院データ読み込みボタン */
+        #gsi-load-btn {
+            position: absolute;
+            top: 50px; /* ナビボタンの下に配置 */
+            left: 10px;
+            z-index: 999;
+            background-color: white;
+            padding: 10px 14px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid #9b59b6;
+            color: #9b59b6;
+        }
+        #gsi-load-btn:hover { background-color: #9b59b6; color: white; }
+        #gsi-load-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* CSVアップロードボタン */
+        #csv-shelter-btn {
+            position: absolute;
+            top: 90px; /* さらに下に配置 */
+            left: 10px;
+            z-index: 999;
+            background-color: white;
+            padding: 10px 14px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            border: 2px solid #e67e22;
+            color: #e67e22;
+        }
+        #csv-shelter-btn:hover { background-color: #e67e22; color: white; }
+        #csv-shelter-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        
+        /* ファイル選択フォームは隠しておく（ボタンを押したら起動させるため） */
+        #csv-shelter-input { display: none; }
+
+        /* --- ナビゲーション中のルート情報表示パネル --- */
+        #route-info {
+            display: none; /* 最初は隠す */
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%); /* 画面中央に配置 */
+            z-index: 999;
+            background-color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            font-size: 14px;
+            max-width: 90%;
+        }
+        #route-info .route-close {
+            margin-left: 10px;
+            cursor: pointer;
+            color: #e74c3c;
+            font-weight: bold;
+        }
+
+        /* --- 投稿フォーム（モーダルウィンドウ） --- */
+        #modal {
+            display: none; /* 最初は隠す */
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5); /* 背景を半透明の黒に */
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        h2 { margin-top: 0; font-size: 18px; text-align: center; }
+        label { display: block; margin-top: 10px; font-weight: bold; font-size: 14px; }
+        
+        select, input[type="text"], textarea {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        textarea { height: 60px; }
+
+        #preview-area { margin-top: 10px; text-align: center; }
+        #preview-img {
+            max-width: 100%;
+            max-height: 150px;
+            display: none;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        .btn-group { display: flex; justify-content: space-between; margin-top: 20px; }
+        button { padding: 10px 20px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
+        .btn-save { background-color: #2ecc71; color: white; flex: 1; margin-left: 10px; }
+        .btn-cancel { background-color: #95a5a6; color: white; }
+
+        .btn-delete {
+            background-color: #e74c3c; color: white; border: none;
+            padding: 5px 10px; border-radius: 3px; cursor: pointer; margin-top: 5px; font-size: 12px;
+        }
+
+        .popup-img { width: 200px; height: auto; margin-top: 5px; border-radius: 4px; }
+        .star { color: #f1c40f; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+
+    <button id="download-btn" onclick="downloadCSV()">📥 データ保存(CSV)</button>
+    <button id="nav-btn" onclick="navigateToNearestShelter()">🧭 最寄り避難所へナビ</button>
+    
+    <button id="gsi-load-btn" onclick="loadGSIShelters()">🏛 国土地理院の避難所を追加</button>
+    <button id="csv-shelter-btn" onclick="document.getElementById('csv-shelter-input').click()">📄 指定避難所CSVを追加</button>
+    <input type="file" id="csv-shelter-input" accept=".csv,text/csv" onchange="onShelterCSVSelected(event)">
+    
+    <div id="route-info">
+        <span id="route-text"></span>
+        <span class="route-close" onclick="clearRoute()">✕ 閉じる</span>
+    </div>
+
+    <div id="map"></div>
+
+    <div id="modal">
+        <div class="modal-content">
+            <h2>📍 新しい投稿</h2>
+            
+            <label>ピンの種類</label>
+            <select id="input-type">
+                <option value="danger">🚨 危険（赤）</option>
+                <option value="safe">💙 安心（青）</option>
+                <option value="notice">💡 気づき（黄）</option>
+            </select>
+
+            <label>カテゴリ</label>
+            <select id="input-category">
+                <option value="地震">地震・建物倒壊</option>
+                <option value="大雨">大雨・浸水</option>
+                <option value="土砂">土砂災害</option>
+                <option value="段差">道路の段差・危険</option>
+                <option value="暗い道">暗い道・街灯なし</option>
+                <option value="施設">避難場所・施設</option>
+                <option value="その他">その他</option>
+            </select>
+
+            <label>危険レベル（重要度）</label>
+            <select id="input-level">
+                <option value="1">★☆☆☆☆ (レベル1)</option>
+                <option value="2">★★☆☆☆ (レベル2)</option>
+                <option value="3" selected>★★★☆☆ (レベル3)</option>
+                <option value="4">★★★★☆ (レベル4)</option>
+                <option value="5">★★★★★ (レベル5)</option>
+            </select>
+
+            <label>写真</label>
+            <input type="file" id="input-photo" accept="image/*" onchange="previewPhoto()">
+            <div id="preview-area"><img id="preview-img" src=""></div>
+
+            <label>コメント</label>
+            <textarea id="input-comment" placeholder="状況を詳しく書いてください"></textarea>
+
+            <div class="btn-group">
+                <button class="btn-cancel" onclick="closeModal()">キャンセル</button>
+                <button class="btn-save" onclick="saveData()">登録する</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        // --- 1. 地図の初期設定 ---
+        var map = L.map('map', {
+            minZoom: 5,
+            maxZoom: 19,
+            maxBounds: [[24.0, 122.0], [46.0, 154.0]],
+            maxBoundsViscosity: 1.0
+        }).setView([34.18583, 131.47139], 15);
+
+        // --- 2. 変数 ---
+        var currentLat = 0, currentLng = 0;
+        var uploadedPhotoData = null;
+        var savedMarkers = [];
+        var userLat = null, userLng = null;
+        var routeLayer = null;
+        
+        // ★改良点：マーカーをまとめて管理するグループを作成
+        var markerGroup = L.layerGroup().addTo(map);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // --- 3. アイコン ---
+        var icons = {
+            danger: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', shadowSize: [41, 41] }),
+            safe: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', shadowSize: [41, 41] }),
+            notice: new L.Icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-gold.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', shadowSize: [41, 41] })
+        };
+
+        loadMarkers();
+
+        // --- 4. 投稿機能 ---
+        map.on('click', function(e) {
+            currentLat = e.latlng.lat;
+            currentLng = e.latlng.lng;
+            document.getElementById('input-comment').value = "";
+            document.getElementById('input-photo').value = "";
+            document.getElementById('preview-img').style.display = 'none';
+            uploadedPhotoData = null;
+            document.getElementById('modal').style.display = 'flex';
+        });
+
+        function previewPhoto() {
+            var file = document.getElementById('input-photo').files[0];
+            var reader = new FileReader();
+            reader.onloadend = function() {
+                var preview = document.getElementById('preview-img');
+                preview.src = reader.result;
+                preview.style.display = "block";
+                uploadedPhotoData = reader.result;
+            }
+            if (file) { reader.readAsDataURL(file); }
+        }
+
+        function saveData() {
+            var type = document.getElementById('input-type').value;
+            var category = document.getElementById('input-category').value;
+            var level = document.getElementById('input-level').value;
+            var comment = document.getElementById('input-comment').value;
+            var newMarkerData = {
+                id: Date.now(), lat: currentLat, lng: currentLng,
+                type: type, category: category, level: level,
+                comment: comment, photo: uploadedPhotoData
+            };
+            savedMarkers.push(newMarkerData);
+            saveToLocalStorage();
+            addMarkerToMap(newMarkerData);
+            closeModal();
+        }
+
+        function addMarkerToMap(data) {
+            var level = data.level ? data.level : "3";
+            var stars = "★".repeat(level) + "☆".repeat(5 - level);
+            var popupContent = `<b>【${data.category}】</b><br><span class="star">${stars}</span><br>${data.comment}`;
+            if (data.photo) popupContent += `<br><img src="${data.photo}" class="popup-img">`;
+            var safeId = String(data.id).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+            
+            // 削除ボタン
+            popupContent += '<br><button type="button" class="btn-delete" data-marker-id="' + safeId + '">ゴミ箱（削除）</button>';
+            
+            // ★変更：mapに直接追加せず、markerGroupに追加する
+            var marker = L.marker([data.lat, data.lng], {icon: icons[data.type]})
+                .addTo(markerGroup) 
+                .bindPopup(popupContent);
+            marker.dataId = data.id;
+        }
+
+        // --- 5. データ管理（ここを修正しました） ---
+        function saveToLocalStorage() { localStorage.setItem('bousaiMarkers', JSON.stringify(savedMarkers)); }
+        
+        function loadMarkers() {
+            var data = localStorage.getItem('bousaiMarkers');
+            if (data) {
+                savedMarkers = JSON.parse(data);
+                // マーカーグループを一旦空にしてから全件追加
+                markerGroup.clearLayers();
+                savedMarkers.forEach(addMarkerToMap);
+            }
+        }
+
+        // ★削除機能の修正：リロードせずに画面更新
+        function deleteMarker(id) {
+            if (!confirm("本当にこのピンを削除しますか？")) return;
+            
+            // 1. データ配列から削除
+            savedMarkers = savedMarkers.filter(function(m) { return String(m.id) !== String(id); });
+            
+            // 2. 保存
+            saveToLocalStorage();
+            
+            // 3. 画面上のマーカーを一度全部消して、残ったデータで描き直す（リロードより遥かに速い）
+            markerGroup.clearLayers();
+            savedMarkers.forEach(addMarkerToMap);
+            
+            // 地図の位置はそのまま維持されます！
+        }
+
+        document.addEventListener("click", function(e) {
+            if (e.target && e.target.classList.contains("btn-delete")) {
+                var id = e.target.getAttribute("data-marker-id");
+                if (id != null) deleteMarker(id);
+            }
+        });
+        function closeModal() { document.getElementById('modal').style.display = 'none'; }
+
+        // --- 6. 現在地・距離 ---
+        map.locate({setView: true, maxZoom: 16});
+        map.on('locationfound', function(e) {
+            userLat = e.latlng.lat;
+            userLng = e.latlng.lng;
+            L.circle(e.latlng, e.accuracy / 2).addTo(map);
+        });
+
+        function getDistanceKm(lat1, lng1, lat2, lng2) {
+            var R = 6371;
+            var dLat = (lat2 - lat1) * Math.PI / 180;
+            var dLng = (lng2 - lng1) * Math.PI / 180;
+            var a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // --- 7. ナビゲーション（左右探索版） ---
+        function getDangerMarkers() {
+            return savedMarkers.filter(function(m) {
+                if (m.category === "施設") return false;
+                if (m.type === "danger") return true;
+                var lv = parseInt(m.level, 10);
+                return !isNaN(lv) && lv >= 3;
+            });
+        }
+
+        function routePassesNearDanger(latlngs, dangerMarkers, thresholdKm) {
+            var near = [];
+            for (var d = 0; d < dangerMarkers.length; d++) {
+                var dm = dangerMarkers[d];
+                for (var i = 0; i < latlngs.length; i++) {
+                    var distKm = getDistanceKm(dm.lat, dm.lng, latlngs[i][0], latlngs[i][1]);
+                    if (distKm < thresholdKm) { near.push(dm); break; }
+                }
+            }
+            return { near: near.length > 0, dangers: near };
+        }
+
+        // 左右オフセット対応版
+        function computeViaPoint(startLat, startLng, endLat, endLng, dangersNear, offsetVal) {
+            if (!dangersNear || dangersNear.length === 0) return null;
+            var cLat = 0, cLng = 0;
+            dangersNear.forEach(function(d) { cLat += d.lat; cLng += d.lng; });
+            cLat /= dangersNear.length;
+            cLng /= dangersNear.length;
+            var midLat = (startLat + endLat) / 2;
+            var midLng = (startLng + endLng) / 2;
+            var dx = midLng - cLng;
+            var dy = midLat - cLat;
+            var len = Math.sqrt(dx*dx + dy*dy);
+            if (len === 0) { dx = 0.001; len = 0.001; }
+            return { lat: midLat + (dy / len) * offsetVal, lng: midLng + (dx / len) * offsetVal };
+        }
+
+        function fetchRoute(waypoints) {
+            var pts = waypoints.map(function(w) { return w.lng + "," + w.lat; });
+            var url = "https://router.project-osrm.org/route/v1/driving/" + pts.join(";") + "?overview=full&geometries=geojson";
+            return fetch(url).then(function(res) { return res.json(); });
+        }
+
+        function applyRouteOnMap(data, msgSuffix, isDangerous) {
+            if (data.code !== "Ok" || !data.routes || !data.routes[0]) return null;
+            var route = data.routes[0];
+            var latlngs = route.geometry.coordinates.map(function(c) { return [c[1], c[0]]; });
+            if (routeLayer) map.removeLayer(routeLayer);
+            var style = isDangerous ? {color: '#e74c3c', dashArray: '5, 10', weight: 5} : {color: '#3498db', weight: 5, opacity: 0.8};
+            routeLayer = L.polyline(latlngs, style).addTo(map);
+            map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+            var dist = (route.distance / 1000).toFixed(2);
+            var dur = Math.round(route.duration / 60);
+            document.getElementById("route-text").textContent = "避難所まで 約" + dist + "km・" + dur + "分" + (msgSuffix || "");
+            document.getElementById("route-info").style.display = "block";
+            return { latlngs: latlngs, route: route };
+        }
+
+        // ナビ機能（左右探索）
+        window.navigateToNearestShelter = async function() {
+            if (userLat == null || userLng == null) return alert("現在地を取得できません。");
+            var shelters = savedMarkers.filter(function(m) { return m.category === "施設"; });
+            if (shelters.length === 0) return alert("避難所ピンがありません。");
+
+            var btn = document.getElementById("nav-btn");
+            btn.disabled = true;
+            btn.textContent = "⭮ 安全ルート探索中...";
+
+            shelters.sort(function(a, b) {
+                return getDistanceKm(userLat, userLng, a.lat, a.lng) - getDistanceKm(userLat, userLng, b.lat, b.lng);
+            });
+
+            var dangerMarkers = getDangerMarkers();
+            var DANGER_THRESHOLD_KM = 0.020; // 20m
+            var foundSafeRoute = false;
+            var maxCheck = Math.min(shelters.length, 3);
+
+            for (var i = 0; i < maxCheck; i++) {
+                var target = shelters[i];
+                var targetName = (target.comment || "避難所").split("／")[0];
+                btn.textContent = "探索中: " + targetName + "...";
+                var start = { lat: userLat, lng: userLng };
+                var end = { lat: target.lat, lng: target.lng };
+
+                try {
+                    // プランA: 最短
+                    var data = await fetchRoute([start, end]);
+                    if (data.code === "Ok" && data.routes) {
+                        var originalRoute = data.routes[0];
+                        var check = routePassesNearDanger(originalRoute.geometry.coordinates.map(c => [c[1], c[0]]), dangerMarkers, DANGER_THRESHOLD_KM);
+
+                        if (!check.near) {
+                            applyRouteOnMap(data, "（最短・安全）", false);
+                            alert("✅ 最も近い【" + targetName + "】への安全なルートが見つかりました。");
+                            foundSafeRoute = true;
+                            break;
+                        } 
+                        
+                        // プランB: 左右迂回
+                        console.log("最短は危険。迂回ルート計算中...");
+                        var tryOffsets = [0.003, -0.003]; // 右と左
+                        for (var k = 0; k < tryOffsets.length; k++) {
+                            var via = computeViaPoint(start.lat, start.lng, end.lat, end.lng, check.dangers, tryOffsets[k]);
+                            if (via) {
+                                var dataDetour = await fetchRoute([start, via, end]);
+                                if (dataDetour.code === "Ok" && dataDetour.routes) {
+                                    var detourRoute = dataDetour.routes[0];
+                                    if (detourRoute.distance > originalRoute.distance * 1.8) continue; // 遠すぎたら次
+                                    var checkD = routePassesNearDanger(detourRoute.geometry.coordinates.map(c => [c[1], c[0]]), dangerMarkers, DANGER_THRESHOLD_KM);
+                                    if (!checkD.near) {
+                                        applyRouteOnMap(dataDetour, "（迂回ルート）", false);
+                                        var dir = tryOffsets[k] > 0 ? "（東側）" : "（西側）";
+                                        alert("⚠️ 最短ルート上に危険箇所があります。\n\n✅ 危険を避けたルート" + dir + "を表示しました。");
+                                        foundSafeRoute = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (foundSafeRoute) break;
+                    }
+                } catch(e) { console.error(e); }
+            }
+
+            if (!foundSafeRoute) {
+                alert("安全な迂回ルートが見つかりませんでした。\n注意して最短ルートを進んでください。");
+                var t = shelters[0];
+                fetchRoute([{lat:userLat, lng:userLng}, {lat:t.lat, lng:t.lng}]).then(d => applyRouteOnMap(d, "（※危険あり注意！）", true));
+            }
+            btn.disabled = false;
+            btn.textContent = "🧭 最寄り避難所へナビ";
+        };
+
+        // --- 8. その他 ---
+        window.clearRoute = function() {
+            if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+            document.getElementById("route-info").style.display = "none";
+        };
+        window.downloadCSV = function() {
+            if (savedMarkers.length === 0) return alert("データがありません");
+            var csv = "緯度,経度,種類,カテゴリ,レベル,コメント,日時\n";
+            savedMarkers.forEach(function(m) {
+                var d = (typeof m.id === 'number') ? new Date(m.id).toLocaleString() : "国土地理院";
+                csv += `${m.lat},${m.lng},${m.type},${m.category},${m.level||""},${(m.comment||"").replace(/,/g," ")},${d}\n`;
+            });
+            var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            var link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "bousai_data.csv";
+            link.click();
+        };
+        function lngLatToTile(lng, lat, z) { var n = Math.pow(2, z), x = Math.floor((lng + 180) / 360 * n), y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1/Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n); return { x: x, y: y, z: z }; }
+        function getTilesInBounds(bounds, z) { var sw = bounds.getSouthWest(), ne = bounds.getNorthEast(), t1 = lngLatToTile(sw.lng, sw.lat, z), t2 = lngLatToTile(ne.lng, ne.lat, z), minX = Math.min(t1.x, t2.x), maxX = Math.max(t1.x, t2.x), minY = Math.min(t1.y, t2.y), maxY = Math.max(t1.y, t2.y), tiles = []; for (var x = minX; x <= maxX; x++) for (var y = minY; y <= maxY; y++) tiles.push({ x: x, y: y, z: z }); return tiles; }
+        var GSI_TILE_LAYERS = ["skhb01","skhb02","skhb03","skhb04","skhb05","skhb06","skhb07","skhb08"];
+        var GSI_BASE = "https://cyberjapandata.gsi.go.jp/xyz/";
+        window.loadGSIShelters = function() {
+            var btn = document.getElementById("gsi-load-btn"); btn.disabled = true; btn.textContent = "読み込み中...";
+            var bounds = map.getBounds(), z = 14, tiles = getTilesInBounds(bounds, z), existingIds = {}, totalAdded = 0;
+            savedMarkers.forEach(function(m) { if (typeof m.id==='string' && m.id.indexOf('gsi_')===0) existingIds[m.id] = true; });
+            var layerIndex = 0, tileIndex = 0;
+            function fetchNext() {
+                if (layerIndex >= GSI_TILE_LAYERS.length) { saveToLocalStorage(); btn.disabled = false; btn.textContent = "🏛 国土地理院の避難所を追加"; return alert("完了: " + totalAdded + " 件追加しました。"); }
+                var layer = GSI_TILE_LAYERS[layerIndex];
+                if (tileIndex >= tiles.length) { layerIndex++; tileIndex = 0; return setTimeout(fetchNext, 100); }
+                var t = tiles[tileIndex];
+                fetch(GSI_BASE + layer + "/" + t.z + "/" + t.x + "/" + t.y + ".geojson")
+                    .then(res => res.ok ? res.json() : null)
+                    .then(geojson => {
+                        if (geojson && geojson.features) {
+                            geojson.features.forEach(f => {
+                                var geom = f.geometry, prop = f.properties || {};
+                                if (geom && geom.type === "Point") {
+                                    var lng = geom.coordinates[0], lat = geom.coordinates[1], kid = prop["共通ID"] || (lat.toFixed(5)+"_"+lng.toFixed(5)), key = "gsi_" + kid;
+                                    if (!existingIds[key]) { existingIds[key] = true; var name = prop["施設・場所名"] || "避難場所", newData = { id: key, lat: lat, lng: lng, type: "safe", category: "施設", level: "3", comment: name, photo: null }; savedMarkers.push(newData); addMarkerToMap(newData); totalAdded++; }
+                                }
+                            });
+                        } tileIndex++; setTimeout(fetchNext, 80);
+                    }).catch(() => { tileIndex++; setTimeout(fetchNext, 80); });
+            }
+            if (tiles.length === 0) { btn.disabled = false; btn.textContent = "🏛 国土地理院の避難所を追加"; return alert("範囲を広げてください"); }
+            fetchNext();
+        };
+        function parseCSVLine(line) { var out = [], cur = "", inQuote = false; for (var i = 0; i < line.length; i++) { var c = line[i]; if (c === '"') inQuote = !inQuote; else if (c === ',' && !inQuote) { out.push(cur); cur = ""; } else cur += c; } out.push(cur); return out; }
+        function findCol(cells, names) { for (var i = 0; i < cells.length; i++) { var v = (cells[i] || "").trim(); for (var n = 0; n < names.length; n++) if (v.indexOf(names[n]) !== -1) return i; } return -1; }
+        function processShelterCSV(raw, btn) {
+            if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); var lines = raw.split(/\r?\n/).filter(l => l.trim().length > 0);
+            if (lines.length < 2) { btn.disabled=false; btn.textContent="📄 指定避難所CSVを追加"; return alert("有効なCSVではありません"); }
+            var header = parseCSVLine(lines[0]), colName = findCol(header, ["施設・場所名","施設名"]), colLat = findCol(header, ["緯度"]), colLng = findCol(header, ["経度"]);
+            if (colLat < 0 || colLng < 0) { btn.disabled=false; btn.textContent="📄 指定避難所CSVを追加"; return alert("緯度・経度列が見つかりません"); }
+            var existingIds = {}, added = 0;
+            savedMarkers.forEach(m => { if(typeof m.id==="string" && m.id.indexOf("gsi_shelter_")===0) existingIds[m.id]=true; });
+            for (var i = 1; i < lines.length; i++) {
+                var cells = parseCSVLine(lines[i]), lat = parseFloat(cells[colLat]), lng = parseFloat(cells[colLng]);
+                if (isNaN(lat) || isNaN(lng)) continue;
+                var id = "gsi_shelter_row" + i;
+                if (existingIds[id]) continue;
+                var name = cells[colName] || "指定避難所", newData = { id: id, lat: lat, lng: lng, type: "safe", category: "施設", level: "3", comment: name, photo: null };
+                savedMarkers.push(newData); addMarkerToMap(newData); added++;
+            }
+            saveToLocalStorage(); btn.disabled=false; btn.textContent="📄 指定避難所CSVを追加"; alert("追加件数: " + added);
+        }
+        window.onShelterCSVSelected = function(ev) {
+            var file = ev.target.files[0]; if(!file) return; ev.target.value = "";
+            var btn = document.getElementById("csv-shelter-btn"); btn.disabled = true; btn.textContent = "読み込み中...";
+            var reader = new FileReader();
+            reader.onload = function(e) { processShelterCSV(e.target.result, btn); };
+            reader.readAsText(file, "UTF-8");
+        };
+    </script>
